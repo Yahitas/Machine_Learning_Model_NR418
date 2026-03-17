@@ -1,0 +1,247 @@
+---
+title: "4 — Student Model: RGB-Only Classifier via Knowledge Distillation"
+author: 
+  name: "Kyle Cahitas"
+  email: "kcahitas@calpoly.edu"
+date: today
+format: html
+editor: source
+execute:
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+
+# Notes Before Reading
+Hi Ian,
+Below is the workflow the NR-418 group used. 
+A separate qmd file will be created for the Sequoia Riverlands Trust. You can run all this code but it may be insufficient time. We included this workflow to show you our logic. Thank you!
+
+# Libraries
+
+```{r}
+library(terra)
+library(sf)
+library(tidyverse)
+library(viridis)
+library(GLCMTextures)
+library(RColorBrewer)
+library(caret)
+library(ranger)
+library(e1071)
+library(doParallel)
+```
+
+## Importing the files (not going to need them all)
+
+```{r}
+data_folder <- "full_textures"
+file_list <- list.files(path = data_folder, pattern = "\\.tif{1,2}$", full.names = TRUE)
+
+for (file in file_list) {
+  og_name <- tools::file_path_sans_ext(basename(file))
+  assign(og_name, rast(file))
+  cat("Loaded:", og_name, "\n")
+}
+```
+
+```{r}
+# Red GLCM
+glcm_red_contrast     <- GLCM_Redglcm_contrast
+glcm_red_correlation  <- GLCM_Redglcm_correlation
+glcm_red_dissimilarity<- GLCM_Redglcm_dissimilarity
+glcm_red_entropy      <- GLCM_Redglcm_entropy
+glcm_red_homogeneity  <- GLCM_Redglcm_homogeneity
+glcm_red_mean         <- GLCM_Redglcm_mean
+glcm_red_variance     <- GLCM_Redglcm_variance
+
+# Green GLCM
+glcm_green_contrast      <- GLCM_Greenglcm_contrast
+glcm_green_correlation   <- GLCM_Greenglcm_correlation
+glcm_green_dissimilarity <- GLCM_Greenglcm_dissimilarity
+glcm_green_entropy       <- GLCM_Greenglcm_entropy
+glcm_green_homogeneity   <- GLCM_Greenglcm_homogeneity
+glcm_green_mean          <- GLCM_Greenglcm_mean
+glcm_green_variance      <- GLCM_Greenglcm_variance
+
+# Blue GLCM
+glcm_blue_contrast      <- GLCM_Blueglcm_contrast
+glcm_blue_correlation   <- GLCM_Blueglcm_correlation
+glcm_blue_dissimilarity <- GLCM_Blueglcm_dissimilarity
+glcm_blue_entropy       <- GLCM_Blueglcm_entropy
+glcm_blue_homogeneity   <- GLCM_Blueglcm_homogeneity
+glcm_blue_mean          <- GLCM_Blueglcm_mean
+glcm_blue_variance      <- GLCM_Blueglcm_variance
+
+# RGB Indices
+ExG_rgb   <- EXG_200
+ExGR_rgb  <- EXGR_200
+RGBVI_rgb <- RGBVI_200
+TGI_rgb   <- TGI_200
+VARI_rgb  <- VARI_200
+VEG_rgb   <- VEG_200
+NGRDI_rgb <- NGRDI_200
+GLI_rgb   <- GLI_200
+```
+
+```{r}
+# Rename layers to include color BEFORE stacking 
+# Red GLCM
+names(glcm_red_contrast)      <- "red_contrast"
+names(glcm_red_correlation)   <- "red_correlation"
+names(glcm_red_dissimilarity) <- "red_dissimilarity"
+names(glcm_red_entropy)       <- "red_entropy"
+names(glcm_red_homogeneity)   <- "red_homogeneity"
+names(glcm_red_mean)          <- "red_mean"
+names(glcm_red_variance)      <- "red_variance"
+
+# Green GLCM
+names(glcm_green_contrast)      <- "green_contrast"
+names(glcm_green_correlation)   <- "green_correlation"
+names(glcm_green_dissimilarity) <- "green_dissimilarity"
+names(glcm_green_entropy)       <- "green_entropy"
+names(glcm_green_homogeneity)   <- "green_homogeneity"
+names(glcm_green_mean)          <- "green_mean"
+names(glcm_green_variance)      <- "green_variance"
+
+# Blue GLCM
+names(glcm_blue_contrast)      <- "blue_contrast"
+names(glcm_blue_correlation)   <- "blue_correlation"
+names(glcm_blue_dissimilarity) <- "blue_dissimilarity"
+names(glcm_blue_entropy)       <- "blue_entropy"
+names(glcm_blue_homogeneity)   <- "blue_homogeneity"
+names(glcm_blue_mean)          <- "blue_mean"
+names(glcm_blue_variance)      <- "blue_variance"
+
+# RGB Indices
+names(ExG_rgb)   <- "ExG"
+names(ExGR_rgb)  <- "ExGR"
+names(RGBVI_rgb) <- "RGBVI"
+names(TGI_rgb)   <- "TGI"
+names(VARI_rgb)  <- "VARI"
+names(VEG_rgb)   <- "VEG"
+names(NGRDI_rgb) <- "NGRDI"
+names(GLI_rgb)   <- "GLI"
+```
+
+```{r}
+raster_200 <- rast("og_tif_files/og_merge.tif")
+```
+
+```{r}
+red_200   <- raster_200[[1]]
+green_200 <- raster_200[[2]]  
+blue_200  <- raster_200[[3]]
+```
+
+```{r}
+names(red_200)   <- "red_b"
+names(blue_200)  <- "blue_b"
+names(green_200) <- "green_b"
+```
+
+```{r}
+raster_fern <- c(glcm_blue_entropy, glcm_green_entropy, glcm_red_entropy,
+                 glcm_green_contrast, glcm_blue_contrast, glcm_red_contrast,
+                 glcm_blue_variance, glcm_green_variance, glcm_red_variance,
+                 glcm_blue_homogeneity, glcm_green_homogeneity, glcm_red_homogeneity,
+                 TGI_rgb, ExG_rgb, VARI_rgb,
+                 red_200, blue_200, green_200)
+```
+
+child model = student model
+
+```{r}
+child_stack <- raster_fern
+writeRaster(raster_fern, "output_tifs/child_stack.tif", datatype = "FLT4S", overwrite = TRUE)
+```
+
+Import the mother/teacher labels
+
+```{r}
+mother_labels <- rast("output_tifs/mother_labels.tif")
+```
+
+```{r}
+child_stack <- crop(child_stack, mother_labels)
+combined <- c(child_stack, mother_labels)
+training_df <- as.data.frame(combined, na.rm = TRUE)
+names(training_df)[ncol(training_df)] <- "class"
+training_df$class <- as.factor(training_df$class)
+
+cat("Total pixels:", nrow(training_df), "\n")
+print(table(training_df$class))
+```
+
+```{r}
+# Quick visual check to make sure extents match
+ext(child_stack)
+ext(mother_labels)
+
+nrow(child_stack)
+nrow(mother_labels)
+
+ncol(child_stack)
+ncol(mother_labels)
+```
+
+```{r}
+# Subsample — 74 million is way too many for RF
+set.seed(808)
+training_df <- training_df |>
+  group_by(class) |>
+  slice_sample(n = 50000, replace = FALSE) |>
+  ungroup()
+
+cat("Subsampled to:", nrow(training_df), "\n")
+print(table(training_df$class))
+
+# Setup parallel
+cl <- makePSOCKcluster(parallel::detectCores() - 2)
+registerDoParallel(cl)
+
+# Train child model
+train_control <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary,
+  allowParallel = TRUE)
+
+tune_grid <- expand.grid(
+  mtry = c(4),
+  splitrule = "extratrees",
+  min.node.size = )
+
+set.seed(123)
+child_model <- train(
+  class ~ .,
+  data = training_df,
+  method = "ranger",
+  trControl = train_control,
+  tuneGrid = tune_grid,
+  importance = "permutation",
+  num.trees = 500
+)
+
+print(child_model)
+print(confusionMatrix(child_model))
+
+varImp(child_model) |> 
+  plot(top = 18, main = "Child Model Feature Importance")
+
+# Save
+saveRDS(child_model, "rds_outputs/child_model.rds")
+saveRDS(training_df, "rds_outputs/child_training_df.rds")
+
+stopCluster(cl)
+registerDoSEQ()
+cat("Child model complete.\n")
+```
+
+```{r}
+# Visual check
+print(child_model)
+print(confusionMatrix(child_model))
+```
