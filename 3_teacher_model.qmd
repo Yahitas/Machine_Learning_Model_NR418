@@ -1,0 +1,425 @@
+---
+title: "3 — Teacher Model: Full-Feature Random Forest Classifier"
+author: 
+  name: "Kyle Cahitas"
+  email: "kcahitas@calpoly.edu"
+date: today
+format: html
+editor: source
+execute:
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+# Notes Before Reading
+Hi Ian,
+Below is the workflow the NR-418 group used. 
+A separate qmd file will be created for the Sequoia Riverlands Trust. You can run all this code but it may be insufficient time. We included this workflow to show you our logic. Thank you!
+
+# Libraries
+
+```{r}
+library(terra)
+library(sf)
+library(tidyverse)
+library(viridis)
+library(GLCMTextures)
+library(RColorBrewer)
+library(factoextra)
+library(corrplot)
+library(randomForest)
+library(caret)
+library(ranger)
+library(e1071)
+library(MLmetrics)
+library(doParallel)
+```
+
+I ran code for all the layers, just in case the global environment was wrong. A bit redundant but helps visually see everything again.
+
+## Importing the files
+
+```{r}
+pca_1 <- rast("pca_results/pca_1.tif")
+pca_2 <- rast("pca_results/pca_2.tif")
+pca_3 <- rast("pca_results/pca_3.tif")
+pca_4 <- rast("pca_results/pca_4.tif")
+pca_5 <- rast("pca_results/pca_5.tif")
+pca_6 <- rast("pca_results/pca_6.tif")
+```
+
+```{r}
+data_folder <- "full_textures"
+file_list <- list.files(path = data_folder, pattern = "\\.tif{1,2}$", full.names = TRUE)
+
+for (file in file_list) {
+  og_name <- tools::file_path_sans_ext(basename(file))
+  assign(og_name, rast(file))
+  cat("Loaded:", og_name, "\n")
+}
+```
+
+```{r}
+# Red GLCM
+glcm_red_contrast     <- GLCM_Redglcm_contrast
+glcm_red_correlation  <- GLCM_Redglcm_correlation
+glcm_red_dissimilarity<- GLCM_Redglcm_dissimilarity
+glcm_red_entropy      <- GLCM_Redglcm_entropy
+glcm_red_homogeneity  <- GLCM_Redglcm_homogeneity
+glcm_red_mean         <- GLCM_Redglcm_mean
+glcm_red_variance     <- GLCM_Redglcm_variance
+
+# Green GLCM
+glcm_green_contrast      <- GLCM_Greenglcm_contrast
+glcm_green_correlation   <- GLCM_Greenglcm_correlation
+glcm_green_dissimilarity <- GLCM_Greenglcm_dissimilarity
+glcm_green_entropy       <- GLCM_Greenglcm_entropy
+glcm_green_homogeneity   <- GLCM_Greenglcm_homogeneity
+glcm_green_mean          <- GLCM_Greenglcm_mean
+glcm_green_variance      <- GLCM_Greenglcm_variance
+
+# Blue GLCM
+glcm_blue_contrast      <- GLCM_Blueglcm_contrast
+glcm_blue_correlation   <- GLCM_Blueglcm_correlation
+glcm_blue_dissimilarity <- GLCM_Blueglcm_dissimilarity
+glcm_blue_entropy       <- GLCM_Blueglcm_entropy
+glcm_blue_homogeneity   <- GLCM_Blueglcm_homogeneity
+glcm_blue_mean          <- GLCM_Blueglcm_mean
+glcm_blue_variance      <- GLCM_Blueglcm_variance
+
+# RGB Indices
+ExG_rgb   <- EXG_200
+ExGR_rgb  <- EXGR_200
+RGBVI_rgb <- RGBVI_200
+TGI_rgb   <- TGI_200
+VARI_rgb  <- VARI_200
+VEG_rgb   <- VEG_200
+NGRDI_rgb <- NGRDI_200
+GLI_rgb   <- GLI_200
+
+# PCA layers
+pca_1 <- pca_1
+pca_2 <- pca_2
+pca_3 <- pca_3
+pca_4 <- pca_4
+pca_5 <- pca_5
+pca_6 <- pca_6
+```
+
+```{r}
+# Red GLCM
+names(glcm_red_contrast)      <- "red_contrast"
+names(glcm_red_correlation)   <- "red_correlation"
+names(glcm_red_dissimilarity) <- "red_dissimilarity"
+names(glcm_red_entropy)       <- "red_entropy"
+names(glcm_red_homogeneity)   <- "red_homogeneity"
+names(glcm_red_mean)          <- "red_mean"
+names(glcm_red_variance)      <- "red_variance"
+
+# Green GLCM
+names(glcm_green_contrast)      <- "green_contrast"
+names(glcm_green_correlation)   <- "green_correlation"
+names(glcm_green_dissimilarity) <- "green_dissimilarity"
+names(glcm_green_entropy)       <- "green_entropy"
+names(glcm_green_homogeneity)   <- "green_homogeneity"
+names(glcm_green_mean)          <- "green_mean"
+names(glcm_green_variance)      <- "green_variance"
+
+# Blue GLCM
+names(glcm_blue_contrast)      <- "blue_contrast"
+names(glcm_blue_correlation)   <- "blue_correlation"
+names(glcm_blue_dissimilarity) <- "blue_dissimilarity"
+names(glcm_blue_entropy)       <- "blue_entropy"
+names(glcm_blue_homogeneity)   <- "blue_homogeneity"
+names(glcm_blue_mean)          <- "blue_mean"
+names(glcm_blue_variance)      <- "blue_variance"
+
+# RGB Indices 
+names(ExG_rgb)   <- "ExG"
+names(ExGR_rgb)  <- "ExGR"
+names(RGBVI_rgb) <- "RGBVI"
+names(TGI_rgb)   <- "TGI"
+names(VARI_rgb)  <- "VARI"
+names(VEG_rgb)   <- "VEG"
+names(NGRDI_rgb) <- "NGRDI"
+names(GLI_rgb)   <- "GLI"
+
+# PCA layers
+names(pca_1) <- "pca_1"
+names(pca_2) <- "pca_2"
+names(pca_3) <- "pca_3"
+names(pca_4) <- "pca_4"
+names(pca_5) <- "pca_5"
+names(pca_6) <- "pca_6"
+```
+
+```{r}
+raster_stack <- c(glcm_red_contrast, glcm_red_correlation, glcm_red_dissimilarity,
+         glcm_red_entropy, glcm_red_homogeneity, glcm_red_mean, glcm_red_variance,
+         glcm_green_contrast, glcm_green_correlation, glcm_green_dissimilarity,
+         glcm_green_entropy, glcm_green_homogeneity, glcm_green_mean, glcm_green_variance,
+         glcm_blue_contrast, glcm_blue_correlation, glcm_blue_dissimilarity,
+         glcm_blue_entropy, glcm_blue_homogeneity, glcm_blue_mean, glcm_blue_variance,
+         ExG_rgb, ExGR_rgb, RGBVI_rgb, TGI_rgb, VARI_rgb, VEG_rgb, NGRDI_rgb, GLI_rgb,
+         pca_1, pca_2, pca_3, pca_4, pca_5, pca_6)
+
+print(names(raster_stack))  # Double Check
+```
+
+Remember that we used the entire drone raster; code below will now split it into two. The right side is the test and the left side is the validation.
+
+```{r}
+# DON'T RUN (if you want to) — will provide all of the files
+# e <- ext(raster_stack)
+# mid_x <- (e$xmin + e$xmax) / 2
+# 
+# full_vald <- ext(e$xmin, mid_x, e$ymin, e$ymax) |> 
+#   crop(x = raster_stack)
+# 
+# writeRaster(full_vald, "output_tifs/full_vald.tif", overwrite = TRUE)
+# 
+# full_test <- ext(mid_x, e$xmax, e$ymin, e$ymax) |> 
+#   crop(x = raster_stack)
+# 
+# writeRaster(full_test, "full_textures/full_test.tif", overwrite = TRUE)
+```
+
+```{r}
+full_test <- rast("full_textures/full_test.tif")
+```
+
+# Stacking the polygons now
+
+## Importing polygons
+
+```{r}
+bg_poly  <- vect("polygons/BG_poly_test/BG_poly_test.shp")
+ds_poly  <- vect("polygons/DS_poly_test/DS_poly_test.shp")
+grs_poly <- vect("polygons/GRS_poly_test/GRS_poly_test.shp")
+rt_poly  <- vect("polygons/RT_poly_test/RT_poly_test.shp")
+sb_poly  <- vect("polygons/SB_poly_test/SB_poly_test.shp")
+shd_poly <- vect("polygons/SHD_poly_test/SHD_poly_test.shp")
+```
+
+## Beginning Preprocessing steps
+
+```{r}
+bg_vals <- terra::extract(full_test, bg_poly, cells = TRUE) |> 
+  mutate(class = "bare_ground")
+
+ds_vals <- terra::extract(full_test, ds_poly, cells = TRUE) |> 
+  mutate(class = "dead_shrubs")
+
+grs_vals <- terra::extract(full_test, grs_poly, cells = TRUE) |> 
+  mutate(class = "grass")
+
+rt_vals <- terra::extract(full_test, rt_poly, cells = TRUE) |> 
+  mutate(class = "russian_thistle")
+
+sb_vals <- terra::extract(full_test, sb_poly, cells = TRUE) |> 
+  mutate(class = "saltbush")
+
+shd_vals <- terra::extract(full_test, shd_poly, cells = TRUE) |> 
+  mutate(class = "shadow")
+```
+
+## Stacking them all
+
+```{r}
+train_data <- bind_rows(
+  bg_vals,
+  ds_vals,
+  grs_vals,
+  rt_vals,
+  sb_vals,
+  shd_vals) |> 
+  select(-ID) |>
+  na.omit() |>
+  mutate(class = factor(class, levels = c("saltbush", "russian_thistle", "shadow", "grass", "dead_shrubs", "bare_ground"))) |> 
+  arrange(class) |>
+  filter(!duplicated(cell)) |>
+  dplyr::select(-any_of(c("ID", "id", "cell"))) |>
+  mutate(class = as.factor(class))
+
+cat("Raw class distribution:\n")
+```
+
+```{r}
+# Save the train data frame, just in case
+saveRDS(train_data, "rds_outputs/train_data.rds")
+```
+
+## Train Data Visual
+
+```{r}
+train_data |>
+  count(class) |>
+  ggplot(aes(x = class, 
+             y = n, 
+             fill = class)) +
+  geom_col() +
+  geom_text(aes(label = n), 
+            vjust = -0.5) +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(title = "Class Distribution (Before Balancing)", 
+       y = "Pixel Count") +
+  theme_minimal()
+```
+
+## Balanced Train Data Visual
+
+```{r}
+min_count <- train_data |> 
+  count(class) |> 
+  pull(n) |> 
+  min()
+
+set.seed(42)
+balanced_data <- train_data |>
+  group_by(class) |>
+  slice_sample(n = min_count) |>
+  ungroup()
+
+balanced_data |> 
+  count(class) |> 
+  print()
+
+balanced_data |>
+  count(class) |>
+  ggplot(aes(x = class, 
+             y = n, 
+             fill = class)) +
+  geom_col() +
+  geom_text(aes(label = n), vjust = -0.5) +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(title = "Class Distribution (After Balancing)", 
+       y = "Pixel Count") +
+  theme_minimal()
+```
+
+```{r}
+set.seed(805)
+
+train_set <- balanced_data |> 
+  slice_sample(prop = 0.7)
+
+test_set  <- balanced_data |> 
+  anti_join(train_set)
+
+cat("\nTraining:", nrow(train_set), "| Testing:", nrow(test_set), "\n")
+```
+
+# Caret (Machine Learning — Teacher Model)
+
+Note: We originally called it "mother model" but changed it to "teacher model" for the presentation. mother model = teacher model; child model = student model.
+
+```{r}
+# Load saved train/test sets if resuming from a previous session
+# train_set <- read_rds("rds_outputs/train_set.rds")
+# test_set  <- read_rds("rds_outputs/test_set.rds")
+
+# For reference: original machine is MacBook Pro M4 48GB — adjust cores if needed
+cl <- makePSOCKcluster(parallel::detectCores() - 2)
+registerDoParallel(cl)
+
+train_control <- trainControl(
+  method          = "repeatedcv",
+  number          = 10,
+  repeats         = 3,
+  classProbs      = TRUE,
+  summaryFunction = multiClassSummary,
+  savePredictions = "final",
+  allowParallel   = TRUE)
+
+tune_grid <- expand.grid(
+  mtry          = c(2, 4, 6, 8),
+  splitrule     = "extratrees",
+  min.node.size = 1)
+
+set.seed(123)
+rf_caret <- train(
+  class ~ .,
+  data       = train_set,
+  method     = "ranger",
+  trControl  = train_control,
+  tuneGrid   = tune_grid,
+  importance = "permutation",
+  num.trees  = 500)
+
+stopCluster(cl)
+registerDoSEQ()
+
+write_rds(rf_caret, "rds_outputs/rf_caret_model.rds")
+write_rds(train_set, "rds_outputs/train_set.rds")
+write_rds(test_set, "rds_outputs/test_set.rds")
+print(rf_caret)
+```
+
+# Identifying labels now to transfer for the student model
+
+```{r}
+mother_model <- readRDS("rds_outputs/rf_caret_model.rds")
+```
+
+```{r}
+mother_stack <- rast("full_textures/full_test.tif")
+```
+
+```{r}
+# Chunk-based prediction to avoid memory issues
+n_chunks <- 10
+rows_per_chunk <- ceiling(nrow(mother_stack) / n_chunks)
+
+# Create chunk extents
+chunks <- lapply(1:n_chunks, function(i) {
+  row_start <- (i - 1) * rows_per_chunk + 1
+  row_end <- min(i * rows_per_chunk, nrow(mother_stack))
+  ext(mother_stack, r1 = row_start, r2 = row_end)
+})
+
+# Predict each chunk sequentially but save to disk
+chunk_files <- c()
+for (i in 1:n_chunks) {
+  cat("Processing chunk", i, "of", n_chunks, "\n")
+  
+  chunk_rast <- crop(mother_stack, chunks[[i]])
+  
+  chunk_file <- paste0("chunk_", i, ".tif")
+  chunk_files <- c(chunk_files, chunk_file)
+  
+  terra::predict(
+    chunk_rast, mother_model,
+    type = "raw",
+    filename = chunk_file,
+    overwrite = TRUE)
+  
+  # Free memory
+  rm(chunk_rast)
+  gc()
+}
+```
+
+```{r}
+# Merge all chunks back together
+cat("Merging chunks...\n")
+chunk_rasts <- lapply(chunk_files, rast)
+mother_labels <- do.call(merge, chunk_rasts)
+
+writeRaster(mother_labels, "output_tifs/mother_labels.tif", overwrite = TRUE)
+names(mother_labels) <- "class"
+
+file.remove(chunk_files)
+```
+
+Quick visual
+
+```{r}
+mother_labels <- rast("output_tifs/mother_labels.tif")
+```
+
+```{r}
+plot(mother_labels, type = "classes",
+     col = c("#2D6A4F", "#E6393D", "#333333", "#95D5B2", "#BC6C25", "#DDB892"),
+     main = "Mother Model Labels")
+```
