@@ -1,0 +1,349 @@
+---
+title: "Final Template"
+author:
+  name: "Kyle Cahitas"
+  email: "kcahitas@calpoly.edu"
+date: today
+format: html
+editor: source
+execute:
+  echo: true
+  eval: false
+---
+
+# Notes Before Reading
+For Sequoia Riverlands Trust. This code and model only work for drone RGB imagery. Every code chunk has a `#| eval: false`. If you want to use this template, you need to delete that.
+ 
+# Installation
+Unhash and run once, if you dont have these packages. 
+```{r}
+#| eval: false
+#install.packages("terra")
+#install.packages("sf")
+#install.packages("tidyverse")
+#install.packages("caret")
+#install.packages("GLCMTextures")
+#install.packages("ranger")
+#install.packages("e1071")
+#install.packages("RColorBrewer")
+#install.packages("doParallel")
+```
+
+# Libraires
+```{r}
+#| eval: false
+library(terra)
+library(sf)
+library(tidyverse)
+library(caret)
+library(ranger)
+library(GLCMTextures)
+library(e1071)
+library(RColorBrewer)
+library(doParallel)
+```
+
+# Loading Data
+Loading Carrizo Plain Drone Imagery. Ensure that the Drone Imagery is in EPSG:3857 - WGS 84 / Pseudo-Mercator.
+
+```{r}
+#| eval: false
+drone_raster <- rast("DRONE_IMAGERY.tif") #change to the name of your file & correlate it with the data file, I have set up 
+child_model <- readRDS("rds_outputs/child_model.rds")
+red <- drone_raster[[1]]
+green <- drone_raster[[2]]
+blue <- drone_raster[[3]]
+```
+
+# Note
+Remember, for the model to work, the new drone imagery needs to have the exact same bands, and the GLCM textures need to be computed in the same way.
+
+## GLCM Textures 
+Note. There could be a better streamlined version, but I separate each band and then run the GLCM Texture function.
+```{r}
+#| eval: false
+# Green 
+textr_green <- glcm_textures(
+  green,
+  w           = c(7, 7),
+  n_levels    = 16,
+  quant_method = "prob",
+  shift       = list(c(1, 0),
+                     c(1, 1),
+                     c(0, 1),
+                     c(-1, 1)),
+  metrics     = c("glcm_contrast",
+                  "glcm_homogeneity",
+                  "glcm_entropy",
+                  "glcm_variance"))
+writeRaster(textr_green, "glcm_200_green_all_bands.tif", overwrite = TRUE) #this is just insurance, take awhile to run 
+
+# Red
+textr_red <- glcm_textures(
+  red,
+  w           = c(7, 7),
+  n_levels    = 16,
+  quant_method = "prob",
+  shift       = list(c(1, 0),
+                     c(1, 1),
+                     c(0, 1),
+                     c(-1, 1)),
+  metrics     = c("glcm_contrast",
+                  "glcm_homogeneity",
+                  "glcm_entropy",
+                  "glcm_variance"))
+writeRaster(textr_red, "glcm_200_red_all_bands.tif", overwrite = TRUE) #this is just insurance, take awhile to run 
+
+# Blue
+textr_blue <- glcm_textures(
+  blue,
+  w           = c(7, 7),
+  n_levels    = 16,
+  quant_method = "prob",
+  shift       = list(c(1, 0),
+                     c(1, 1),
+                     c(0, 1),
+                     c(-1, 1)),
+  metrics     = c("glcm_contrast",
+                  "glcm_homogeneity",
+                  "glcm_entropy",
+                  "glcm_variance"))
+writeRaster(textr_blue, "glcm_200_blue_all_bands.tif", overwrite = TRUE) #this is just insurance, take awhile to run 
+```
+
+## Understanding the outputs of the glcm_texture() function
+
+### Window function
+```{r}
+#| eval: false
+glcm_textures(
+  data, 
+  w = c(7,7),
+  ..., )# means there are more functions to connect to
+```
+
+This function examines each pixel using a 7 × 7 block of surrounding pixels to compute texture statistics.
+
+### Levels function
+```{r}
+#| eval: false
+glcm_textures(
+  data, 
+  ...,# means there are more functions to connect to
+  n_levels = 16)
+```
+The raster pixels ranged from 0 to 255. Running the level functions bins down into 16 gray levels for the GLCM matrix. Originally had it at 32, but kept on crashing, so switched to 16.
+
+### Shifts function
+```{r}
+#| eval: false
+glcm_textures(
+  data, 
+  ..., # means there are more functions to connect to
+  shift = list(c(1, 0),
+                     c(1, 1),
+                     c(0, 1),
+                     c(-1, 1)))
+```
+Measures four directions:horizontal, diagonal down-right, vertical and diagonal down-left.
+
+
+### Metrics function
+```{r}
+#| eval: false
+glcm_textures(
+  data, 
+  ..., # means there are more functions to connect to
+  metrics     = c("glcm_contrast",
+                  "glcm_homogeneity",
+                  "glcm_entropy",
+                  "glcm_variance"))
+```
+The outputs you want. In this case its only 4 types of GLCM textures. 
+
+## Vegetation Indices
+```{r}
+#| eval: false
+tgi  <- green - 0.39 * red - 0.61 * blue
+names(tgi) <- "TGI"
+exg  <- 2 * green - red - blue
+names(exg) <- "ExG"
+vari <- (green - red) / (green + red - blue)
+vari <- ifel((green + red - blue) == 0, NA, vari)
+names(vari) <- "VARI"
+```
+Used only three Indice to simplify the model. These where the most important. 
+
+
+# Renaming before stacking
+There is probably a better way. The only reason we are renaming is to better understand the output.
+```{r}
+#| eval: false
+# Red GLCM — extract layers from textr_red
+glcm_red_contrast     <- textr_red[["glcm_contrast"]]
+glcm_red_homogeneity  <- textr_red[["glcm_homogeneity"]]
+glcm_red_entropy      <- textr_red[["glcm_entropy"]]
+glcm_red_variance     <- textr_red[["glcm_variance"]]
+##
+names(glcm_red_contrast)      <- "red_contrast"
+names(glcm_red_entropy)       <- "red_entropy"
+names(glcm_red_homogeneity)   <- "red_homogeneity"
+names(glcm_red_variance)      <- "red_variance"
+
+# Green GLCM — extract layers from textr_green
+glcm_green_contrast     <- textr_green[["glcm_contrast"]]
+glcm_green_homogeneity  <- textr_green[["glcm_homogeneity"]]
+glcm_green_entropy      <- textr_green[["glcm_entropy"]]
+glcm_green_variance     <- textr_green[["glcm_variance"]]
+##
+names(glcm_green_contrast)      <- "green_contrast"
+names(glcm_green_entropy)       <- "green_entropy"
+names(glcm_green_homogeneity)   <- "green_homogeneity"
+names(glcm_green_variance)      <- "green_variance"
+
+# Blue GLCM — extract layers from textr_blue
+glcm_blue_contrast     <- textr_blue[["glcm_contrast"]]
+glcm_blue_homogeneity  <- textr_blue[["glcm_homogeneity"]]
+glcm_blue_entropy      <- textr_blue[["glcm_entropy"]]
+glcm_blue_variance     <- textr_blue[["glcm_variance"]]
+##
+names(glcm_blue_contrast)      <- "blue_contrast"
+names(glcm_blue_entropy)       <- "blue_entropy"
+names(glcm_blue_homogeneity)   <- "blue_homogeneity"
+names(glcm_blue_variance)      <- "blue_variance"
+```
+
+```{r}
+#| eval: false
+names(red)   <- "red_b"
+names(blue)  <- "blue_b"
+names(green) <- "green_b"
+```
+
+# Stacking 
+The names must also be the same for the model to work.
+```{r}
+#| eval: false
+drone_stack <- c(glcm_blue_entropy, glcm_green_entropy, glcm_red_entropy,
+                 glcm_green_contrast, glcm_blue_contrast, glcm_red_contrast,
+                 glcm_blue_variance, glcm_green_variance, glcm_red_variance,
+                 glcm_blue_homogeneity, glcm_green_homogeneity, glcm_red_homogeneity,
+                 tgi, exg, vari, red, blue, green)
+nlyr(drone_stack)
+#check stack, make sure there is 18
+```
+
+# Running the child/student model and new raster stack
+This model is taking the information from the child model and now applying it to the new drone stack. It classifies every pixel in the raster into one of six classes.
+
+## Refresher of classes
+```{r}
+#"saltbush", "russian_thistle", "shadow","grass","dead_shrubs","bare_ground"
+```
+
+## Running code now
+Combining the new drone data with the child/student model results.
+```{r}
+#| eval: false
+n_chunks <- 10  # Increase to 20-30 if you have <16 GB RAM
+rows_per_chunk <- ceiling(nrow(drone_stack) / n_chunks)
+chunk_files <- c()
+ 
+for (i in 1:n_chunks) {
+  cat("Processing chunk", i, "of", n_chunks, "\n")
+  row_start <- (i - 1) * rows_per_chunk + 1
+  row_end   <- min(i * rows_per_chunk, nrow(drone_stack))
+  full_ext  <- ext(drone_stack)
+  res_y     <- yres(drone_stack)
+  y_max <- full_ext$ymax - (row_start - 1) * res_y
+  y_min <- full_ext$ymax - row_end * res_y
+  chunk_ext  <- ext(full_ext$xmin, full_ext$xmax, y_min, y_max)
+  chunk_rast <- crop(drone_stack, chunk_ext)
+  chunk_file <- paste0("chunk_", i, ".tif")
+  chunk_files <- c(chunk_files, chunk_file)
+  terra::predict(
+    chunk_rast, child_model,
+    type = "raw", na.rm = TRUE,
+    filename = chunk_file, overwrite = TRUE
+  )
+  rm(chunk_rast); gc()
+}
+# Merge all chunks
+chunk_rasts <- lapply(chunk_files, rast)
+classified  <- do.call(merge, chunk_rasts)
+names(classified) <- "class"
+writeRaster(classified, "my_classification.tif", overwrite = TRUE)
+
+```
+This method helps the computer run more efficiently. The function `n_chunk()` splits the data into 10 to help separate the large dataset. The `cat()` function helps show the progress of the functions because they take a while. The row numbers are converted to geographic coordinates and used to calculate pixel coordinates. The function `terra::predict()` runs the classification model on selecting each pixel. (Every time you run `predict()`, make sure to specify it with terra::, there is another package that uses that function name. The functions `rm()` and `gc()` help with the chunk memory and RAM.
+
+
+# Classification Map 
+```{r}
+#| eval: false
+class_colors <- c(
+  "saltbush"        = "#2d6a4f",
+  "russian_thistle" = "#e63946",
+  "shadow"          = "#333333",
+  "grass"           = "#95d5b2",
+  "dead_shrubs"     = "#bc6c25",
+  "bare_ground"     = "#ddb892"
+)
+ 
+plot(
+  classified,
+  main = "Land Cover Classification",
+  col  = class_colors,
+  mar  = c(3, 3, 3, 10),
+  plg  = list(title = "Land Cover", cex = 0.9))
+```
+
+## Visual
+```{r}
+#| eval: false
+freq_table <- freq(classified)
+freq_table$percent <- round(
+  freq_table$count / sum(freq_table$count) * 100, 2
+)
+print(freq_table)
+```
+
+# Confidence map 
+It's called "confidence," but it is just the model's probability for each class. Ranging from 0-1, the closer to 1, the more "confident" the model is.
+
+```{r}
+#| eval: false
+probabilities <- terra::predict(
+  drone_stack, child_model,
+  type     = "prob",
+  na.rm    = TRUE,
+  filename = "my_probabilities.tif",
+  overwrite = TRUE)
+#Extracting the Confidence Layer
+probabilities <- rast("my_probabilities.tif")
+confidence <- max(probabilities)
+names(confidence) <- "confidence"
+ 
+plot(confidence, main = "Classification Confidence",
+     col = viridis::viridis(100))
+ 
+writeRaster(confidence, "my_confidence.tif",
+            overwrite = TRUE)
+```
+
+To check this model's accuracy on the drone raster stack, follow the steps for the teacher/mother model. Selecting polygons and seeing if the model is accurate. Or, you can import the classified raster stack and check visually. Stack both the original drone imagery and the classification model, toggle the transparency, and see if the model was correct.
+
+# Sources that helped: 
+1. https://rstudio-pubs-static.s3.amazonaws.com/253860_05f11cddd938407a9cb3b06d9dc38c9a.html 
+2. https://www.wvview.org/os_sa/15b_Raster_Analysis_terra.html
+3. https://github.com/rspatial/terra/issues/968
+4. https://rspatial.github.io/terra/reference/predict.html 
+5. https://rdrr.io/cran/caret/man/predict.train.html
+
+
+# Questions
+If you have any questions, please contact me at my email:kcahitas@calpoly.edu, and we can set up a Zoom meeting.
+
+
+
+
