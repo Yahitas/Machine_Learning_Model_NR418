@@ -1,0 +1,210 @@
+---
+title: "2 — PCA: Principal Component Analysis on Raster Stack"
+author: 
+  name: "Kyle Cahitas"
+  email: "kcahitas@calpoly.edu"
+date: today
+format: html
+editor: source
+execute:
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+# Notes Before Reading
+Hi Ian,
+Below is the workflow the NR-418 group used. 
+A separate qmd file will be created for the Sequoia Riverlands Trust. You can run all this code but it may be insufficient time. We included this workflow to show you our logic. Thank you!
+
+# Libraries
+
+```{r}
+library(terra)
+library(sf)
+library(tidyverse)
+library(viridis)
+library(GLCMTextures)
+library(RColorBrewer)
+library(factoextra)
+library(corrplot)
+
+# Custom color palettes for vegetation
+veg_colors <- colorRampPalette(c("brown", "yellow", "lightgreen", "darkgreen"))
+```
+
+# PCA
+
+## Importing the files
+
+This loop loads all .tif files from the full_textures folder.
+
+```{r}
+data_folder <- "full_textures"
+file_list <- list.files(path = data_folder, pattern = "\\.tif{1,2}$", full.names = TRUE)
+
+for (file in file_list) {
+  og_name <- tools::file_path_sans_ext(basename(file))
+  assign(og_name, rast(file))
+  cat("Loaded:", og_name, "\n")
+}
+```
+
+There were a lot of errors, but this was the only way to correctly see the tif files in the PCA results.
+
+```{r}
+# Red GLCM
+glcm_red_contrast     <- GLCM_Redglcm_contrast
+glcm_red_correlation  <- GLCM_Redglcm_correlation
+glcm_red_dissimilarity<- GLCM_Redglcm_dissimilarity
+glcm_red_entropy      <- GLCM_Redglcm_entropy
+glcm_red_homogeneity  <- GLCM_Redglcm_homogeneity
+glcm_red_mean         <- GLCM_Redglcm_mean
+glcm_red_variance     <- GLCM_Redglcm_variance
+
+# Green GLCM
+glcm_green_contrast      <- GLCM_Greenglcm_contrast
+glcm_green_correlation   <- GLCM_Greenglcm_correlation
+glcm_green_dissimilarity <- GLCM_Greenglcm_dissimilarity
+glcm_green_entropy       <- GLCM_Greenglcm_entropy
+glcm_green_homogeneity   <- GLCM_Greenglcm_homogeneity
+glcm_green_mean          <- GLCM_Greenglcm_mean
+glcm_green_variance      <- GLCM_Greenglcm_variance
+
+# Blue GLCM
+glcm_blue_contrast      <- GLCM_Blueglcm_contrast
+glcm_blue_correlation   <- GLCM_Blueglcm_correlation
+glcm_blue_dissimilarity <- GLCM_Blueglcm_dissimilarity
+glcm_blue_entropy       <- GLCM_Blueglcm_entropy
+glcm_blue_homogeneity   <- GLCM_Blueglcm_homogeneity
+glcm_blue_mean          <- GLCM_Blueglcm_mean
+glcm_blue_variance      <- GLCM_Blueglcm_variance
+
+# RGB Indices
+ExG_rgb   <- EXG_200
+ExGR_rgb  <- EXGR_200
+RGBVI_rgb <- RGBVI_200
+TGI_rgb   <- TGI_200
+VARI_rgb  <- VARI_200
+VEG_rgb   <- VEG_200
+NGRDI_rgb <- NGRDI_200
+GLI_rgb   <- GLI_200
+```
+
+```{r}
+# Red GLCM
+names(glcm_red_contrast)      <- "red_contrast"
+names(glcm_red_correlation)   <- "red_correlation"
+names(glcm_red_dissimilarity) <- "red_dissimilarity"
+names(glcm_red_entropy)       <- "red_entropy"
+names(glcm_red_homogeneity)   <- "red_homogeneity"
+names(glcm_red_mean)          <- "red_mean"
+names(glcm_red_variance)      <- "red_variance"
+
+# Green GLCM
+names(glcm_green_contrast)      <- "green_contrast"
+names(glcm_green_correlation)   <- "green_correlation"
+names(glcm_green_dissimilarity) <- "green_dissimilarity"
+names(glcm_green_entropy)       <- "green_entropy"
+names(glcm_green_homogeneity)   <- "green_homogeneity"
+names(glcm_green_mean)          <- "green_mean"
+names(glcm_green_variance)      <- "green_variance"
+
+# Blue GLCM
+names(glcm_blue_contrast)      <- "blue_contrast"
+names(glcm_blue_correlation)   <- "blue_correlation"
+names(glcm_blue_dissimilarity) <- "blue_dissimilarity"
+names(glcm_blue_entropy)       <- "blue_entropy"
+names(glcm_blue_homogeneity)   <- "blue_homogeneity"
+names(glcm_blue_mean)          <- "blue_mean"
+names(glcm_blue_variance)      <- "blue_variance"
+
+# RGB Indices
+names(ExG_rgb)   <- "ExG"
+names(ExGR_rgb)  <- "ExGR"
+names(RGBVI_rgb) <- "RGBVI"
+names(TGI_rgb)   <- "TGI"
+names(VARI_rgb)  <- "VARI"
+names(VEG_rgb)   <- "VEG"
+names(NGRDI_rgb) <- "NGRDI"
+names(GLI_rgb)   <- "GLI"
+```
+
+```{r}
+raster_pca <- c(glcm_red_contrast, glcm_red_correlation, glcm_red_dissimilarity,
+         glcm_red_entropy, glcm_red_homogeneity, glcm_red_mean, glcm_red_variance,
+         glcm_green_contrast, glcm_green_correlation, glcm_green_dissimilarity,
+         glcm_green_entropy, glcm_green_homogeneity, glcm_green_mean, glcm_green_variance,
+         glcm_blue_contrast, glcm_blue_correlation, glcm_blue_dissimilarity,
+         glcm_blue_entropy, glcm_blue_homogeneity, glcm_blue_mean, glcm_blue_variance,
+         ExG_rgb, ExGR_rgb, RGBVI_rgb, TGI_rgb, VARI_rgb, VEG_rgb, NGRDI_rgb, GLI_rgb)
+
+print(names(raster_pca))
+
+raster_stack <- raster_pca
+```
+
+# Summary Table
+
+```{r}
+summary_stats <- terra::global(raster_stack, fun = c("mean", "sd"), na.rm = TRUE)
+print(summary_stats)
+```
+
+Dropping ExGR due to high levels.
+
+```{r}
+raster_stack <- c(glcm_red_contrast, glcm_red_correlation, glcm_red_dissimilarity,
+         glcm_red_entropy, glcm_red_homogeneity, glcm_red_mean, glcm_red_variance,
+         glcm_green_contrast, glcm_green_correlation, glcm_green_dissimilarity,
+         glcm_green_entropy, glcm_green_homogeneity, glcm_green_mean, glcm_green_variance,
+         glcm_blue_contrast, glcm_blue_correlation, glcm_blue_dissimilarity,
+         glcm_blue_entropy, glcm_blue_homogeneity, glcm_blue_mean, glcm_blue_variance,
+         ExG_rgb, RGBVI_rgb, TGI_rgb, VARI_rgb, VEG_rgb, NGRDI_rgb, GLI_rgb)
+```
+
+## Running PCA now
+
+```{r}
+set.seed(805)
+raster_sample <- terra::spatSample(raster_stack, size = 10000,
+                                method = "random", na.rm = TRUE, as.df = TRUE)
+raster_sample <- na.omit(raster_sample)
+
+pca_result <- prcomp(raster_sample, center = TRUE, scale. = TRUE)
+
+var_exp   <- pca_result$sdev^2
+var_pct   <- var_exp / sum(var_exp) * 100
+cum_pct   <- cumsum(var_pct)
+
+var_table <- tibble(
+  PC         = paste0("PC", seq_along(var_pct)),
+  Eigenvalue = round(var_exp, 3),
+  Variance   = round(var_pct, 2),
+  Cumulative = round(cum_pct, 2)
+)
+
+print(var_table, n = 30)
+```
+
+Already ran this code — outputs are in pca_results/.
+
+```{r}
+# pc_rasters <- terra::predict(raster_stack, pca_result, index = 1:6)
+# 
+# # Save as a single multi-band GeoTIFF
+# writeRaster(pc_rasters,
+#             filename  = "pca_results/PCA_PC1_to_PC6.tif",
+#             overwrite = TRUE)
+# names(pc_rasters)
+# 
+# # Split and save each texture metric as its own .tif
+# for (i in 1:nlyr(pc_rasters)) {
+#   layer_name <- names(pc_rasters)[i]
+#   writeRaster(
+#     pc_rasters[[i]],
+#     filename  = paste0("pca_results/PCA", layer_name, ".tif"),
+#     overwrite = TRUE
+#   )
+# }
+```
