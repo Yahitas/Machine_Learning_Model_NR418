@@ -1,11 +1,11 @@
 # Machine_Learning_Model_NR418
 
 The following QMD files were used in this project: 
-  1.pre_processing
-  2. PCA
-  3. teacher model
-  4. student model 
-  5. testing student model 
+- 1. pre_processing
+- 2. PCA
+- 3. teacher model
+- 4. student model
+- 5. testing student model 
 
 These QMD files demonstrate our logic in identifying saltbush shrubs from russian thistle. These QMD files demonstrate our logic in identifying. 
 
