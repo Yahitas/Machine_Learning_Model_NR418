@@ -1,0 +1,320 @@
+---
+title: "1 — Pre-Processing: GLCM Textures & Vegetation Indices"
+author: 
+  name: "Kyle Cahitas"
+  email: "kcahitas@calpoly.edu"
+date: today
+format: html
+editor: source
+execute:
+  error: true
+  echo: true
+  message: false
+  warning: false
+---
+# Notes Before Reading
+Hi Ian,
+Below is the workflow the NR-418 group used. 
+A separate qmd file will be created for the Sequoia Riverlands Trust. You can run all this code but it may be insufficient time. We included this workflow to show you our logic. Thank you!
+
+# Libraries
+
+```{r}
+library(terra)
+library(sf)
+library(tidyverse)
+library(viridis)
+library(GLCMTextures)
+library(RColorBrewer)
+library(tidyterra)
+
+# Custom color palettes for vegetation
+veg_colors <- colorRampPalette(c("brown", "yellow", "lightgreen", "darkgreen"))
+```
+
+# Loading the Original Raster
+
+```{r}
+raster_200 <- rast("og_tif_files/og_merge.tif")
+```
+
+# Getting Bands
+
+```{r}
+red_200 <- raster_200[[1]]
+green_200 <- raster_200[[2]]  
+blue_200 <- raster_200[[3]]
+```
+
+# Running GLCM
+
+There was an error with this code, had to run ONE band each, export the raster and then clear the environment and restart.
+
+Don't Run — Already ran but good code to have.
+
+Want to unhash it all: on a Mac use Cmd + Shift + C
+
+## Green GLCM
+
+```{r}
+# textr_green <- glcm_textures(
+#   green_200,
+#   w           = c(7, 7),
+#   n_levels    = 16,
+#   quant_method = "prob",
+#   shift       = list(c(1, 0),
+#                      c(1, 1),
+#                      c(0, 1),
+#                      c(-1, 1)),
+#   metrics     = c("glcm_contrast",
+#                   "glcm_homogeneity",
+#                   "glcm_entropy",
+#                   "glcm_variance",
+#                   "glcm_dissimilarity",
+#                   "glcm_mean",
+#                   "glcm_correlation"))
+# 
+# plot(textr_green)
+```
+
+### Green GLCM export
+
+```{r}
+# writeRaster(textr_green, "full_textures/glcm_200_green_all_bands.tif", overwrite = TRUE)
+```
+
+```{r}
+# # Check layer names
+# names(textr_green)
+# 
+# # Split and save each texture metric as its own .tif
+# for (i in 1:nlyr(textr_green)) {
+#   layer_name <- names(textr_green)[i]
+#   writeRaster(
+#     textr_green[[i]],
+#     filename  = paste0("full_textures/GLCM_Green", layer_name, ".tif"),
+#     overwrite = TRUE
+#   )
+# }
+```
+
+## Red GLCM
+
+```{r}
+# textr_red <- glcm_textures(
+#   red_200,
+#   w           = c(7, 7),          
+#   n_levels    = 16,              
+#   quant_method = "prob",          
+#   shift       = list(c(1, 0),    
+#                      c(1, 1),
+#                      c(0, 1),
+#                      c(-1, 1)),
+#   metrics     = c("glcm_contrast",
+#                   "glcm_homogeneity",
+#                   "glcm_entropy",
+#                   "glcm_variance",
+#                   "glcm_dissimilarity",
+#                   "glcm_mean",
+#                   "glcm_correlation"))
+# 
+# plot(textr_red)
+```
+
+### Red GLCM export
+
+```{r}
+# writeRaster(textr_red, "full_textures/glcm_200_red_all_bands.tif", overwrite = TRUE)
+```
+
+```{r}
+# names(textr_red)
+# 
+# # Split and save each texture metric as its own .tif
+# for (i in 1:nlyr(textr_red)) {
+#   layer_name <- names(textr_red)[i]
+#   writeRaster(
+#     textr_red[[i]],
+#     filename  = paste0("full_textures/GLCM_Red", layer_name, ".tif"),
+#     overwrite = TRUE
+#   )
+# }
+```
+
+## Blue GLCM
+
+```{r}
+# textr_blue <- glcm_textures(
+#   blue_200,
+#   w           = c(7, 7),         
+#   n_levels    = 16,              
+#   quant_method = "prob",          
+#   shift       = list(c(1, 0),    
+#                      c(1, 1),
+#                      c(0, 1),
+#                      c(-1, 1)),
+#   metrics     = c("glcm_contrast",
+#                   "glcm_homogeneity",
+#                   "glcm_entropy",
+#                   "glcm_variance",
+#                   "glcm_dissimilarity",
+#                   "glcm_mean",
+#                   "glcm_correlation"))
+# 
+# plot(textr_blue)
+```
+
+## Blue GLCM export
+
+```{r}
+# writeRaster(textr_blue, "full_textures/glcm_200_blue_all_bands.tif", overwrite = TRUE)
+```
+
+```{r}
+# # Check layer names
+# names(textr_blue)
+# 
+# # Split and save each texture metric as its own .tif
+# for (i in 1:nlyr(textr_blue)) {
+#   layer_name <- names(textr_blue)[i]
+#   writeRaster(
+#     textr_blue[[i]],
+#     filename  = paste0("full_textures/GLCM_Blue", layer_name, ".tif"),
+#     overwrite = TRUE
+#   )
+# }
+```
+
+# Other Indices
+
+Again, these will all be in a folder, don't run.
+
+```{r}
+red <- red_200 
+green <- green_200 
+blue <- blue_200 
+```
+
+## VARI (Visible Atmospherically Resistant Index)
+
+```{r}
+# **Formula:** VARI = (Green - Red) / (Green + Red - Blue)
+vari <- (green - red) / (green + red - blue)
+names(vari) <- "VARI"
+
+# Handle division by zero or very small denominators
+vari <- ifel((green + red - blue) == 0, NA, vari)
+
+# Visualize
+plot(vari, main="VARI (Visible Atmospherically Resistant Index)",
+     col=veg_colors(100))
+
+writeRaster(vari, "full_textures/VARI_200.tif", overwrite = TRUE)
+```
+
+## GLI (Green Leaf Index)
+
+```{r}
+# **Formula:** GLI = (2×Green - Red - Blue) / (2×Green + Red + Blue)
+gli <- (2*green - red - blue) / (2*green + red + blue)
+names(gli) <- "GLI"
+
+# Handle division by zero
+gli <- ifel((2*green + red + blue) == 0, NA, gli)
+
+# Visualize
+plot(gli, main="GLI (Green Leaf Index)",
+     col=veg_colors(100))
+writeRaster(gli, "full_textures/GLI_200.tif", overwrite = TRUE)
+```
+
+## ExG (Excess Green Index)
+
+```{r}
+# **Formula:** ExG = 2×Green - Red - Blue
+exg <- 2*green - red - blue
+names(exg) <- "ExG"
+
+# Normalize to 0-1 range for visualization
+exg_norm <- (exg - global(exg, min, na.rm=TRUE)[1,1]) / 
+            (global(exg, max, na.rm=TRUE)[1,1] - global(exg, min, na.rm=TRUE)[1,1])
+
+# Visualize
+par(mfrow=c(1,2))
+plot(exg, main="ExG (Excess Green)", col=veg_colors(100))
+plot(exg_norm, main="ExG (Normalized)", col=veg_colors(100))
+par(mfrow=c(1,1))
+writeRaster(exg, "full_textures/EXG_200.tif", overwrite = TRUE)
+writeRaster(exg_norm, "full_textures/EXG_norm_200.tif", overwrite = TRUE)
+```
+
+## NGRDI (Normalized Green-Red Difference Index)
+
+```{r}
+# **Formula:** NGRDI = (Green - Red) / (Green + Red)
+ngrdi <- (green - red) / (green + red)
+names(ngrdi) <- "NGRDI"
+
+# Handle division by zero
+ngrdi <- ifel((green + red) == 0, NA, ngrdi)
+
+# Visualize
+plot(ngrdi, main="NGRDI (Normalized Green-Red Difference Index)",
+     col=veg_colors(100))
+writeRaster(ngrdi, "full_textures/NGRDI_200.tif", overwrite = TRUE)
+```
+
+## TGI (Triangular Greenness Index)
+
+```{r}
+# **Formula:** TGI = Green - 0.39×Red - 0.61×Blue
+tgi <- green - 0.39*red - 0.61*blue
+names(tgi) <- "TGI"
+
+# Visualize
+plot(tgi, main="TGI (Triangular Greenness Index)",
+     col=veg_colors(100))
+writeRaster(tgi, "full_textures/TGI_200.tif", overwrite = TRUE)
+```
+
+## RGB Vegetation Index (RGBVI)
+
+```{r}
+rgbvi <- (green^2 - red * blue) / (green^2 + red * blue)
+names(rgbvi) <- "RGBVI"
+
+# Handle division by zero
+rgbvi <- ifel((green^2 + red * blue) == 0, NA, rgbvi)
+
+# Visualize
+plot(rgbvi, main="Red Green Blue Vegetation Index (RGBVI)",
+     col=veg_colors(100))
+writeRaster(rgbvi, "full_textures/RGBVI_200.tif", overwrite = TRUE)
+```
+
+## ExGR
+
+```{r}
+exr <- (1.4 * red) - green
+names(exr) <- "ExR"
+# Formula: ExGR = ExG - ExR
+exgr <- exg - exr
+names(exgr) <- "ExGR"
+exgr <- ifel(is.infinite(exgr), NA, exgr)
+plot(exgr, main="Excess Green Red Index (ExGR)",
+     col=veg_colors(100))
+writeRaster(exgr, "full_textures/EXGR_200.tif", overwrite = TRUE)
+```
+
+## Vegetation Index (VEG)
+
+```{r}
+# Formula: VEG = Green / (Red^0.667 * Blue^0.333)
+veg <- green / (red^0.667 * blue^0.333)
+names(veg) <- "VEG"
+veg <- ifel((red^0.667 * blue^0.333) == 0, NA, veg)
+veg <- ifel(is.infinite(veg), NA, veg)
+plot(veg, main="Vegetation Index (VEG)",
+     col=veg_colors(100))
+writeRaster(veg, "full_textures/VEG_200.tif", overwrite = TRUE)
+```
