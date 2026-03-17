@@ -2,7 +2,7 @@
 
 The following QMD files were used in this project: 
 - 1. pre_processing
-- 2. PCA
+- 2. pca
 - 3. teacher model
 - 4. student model
 - 5. testing student model 
